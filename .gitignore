@@ -7,3 +7,5 @@ kaggle.json
 data/
 *.zip
 .DS_Store
+gradcam_output.png
+test_samples/
