@@ -7,4 +7,3 @@ kaggle.json
 data/
 *.zip
 .DS_Store
-*.pth
