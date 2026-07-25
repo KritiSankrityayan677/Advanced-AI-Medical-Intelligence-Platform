@@ -1,0 +1,121 @@
+"""
+main.py
+FastAPI application exposing the Medical AI Platform over HTTP.
+
+Run with:
+    uvicorn app.api.main:app --reload
+Then open http://127.0.0.1:8000/docs
+"""
+
+import io
+import os
+import base64
+import tempfile
+
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.core.config import ARCHITECTURE, LLM_MODEL
+from app.models.model_loader import DEVICE
+from app.models.predictor import predict
+from app.xai.gradcam import generate_heatmap
+from app.llm.report_generator import generate_report
+from app.api.schemas import (
+    HealthResponse,
+    PredictionResponse,
+    ReportSections,
+    FullReportResponse,
+)
+
+
+# ── Create the app ─────────────────────────────────────
+app = FastAPI(
+    title="Medical AI Platform API",
+    description="Brain tumor classification with Grad-CAM explainability "
+                "and AI-generated preliminary reports.",
+    version="1.0.0",
+)
+
+# Allow browser-based frontends (Phase 6) to call this API
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# ── Helpers ────────────────────────────────────────────
+def _validate_image(file: UploadFile):
+    """Reject anything that isn't an image."""
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Uploaded file must be an image.")
+
+
+def _save_bytes_to_temp(data: bytes, filename: str) -> str:
+    """Write uploaded bytes to a temp file and return its path."""
+    suffix = os.path.splitext(filename or "")[1] or ".jpg"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(data)
+        return tmp.name
+
+
+def _encode_image_base64(pil_image) -> str:
+    """Encode a PIL image as a base64 PNG string."""
+    buffer = io.BytesIO()
+    pil_image.save(buffer, format="PNG")
+    return base64.b64encode(buffer.getvalue()).decode("utf-8")
+
+
+# ── Endpoints ──────────────────────────────────────────
+@app.get("/", include_in_schema=False)
+def root():
+    return {"message": "Medical AI Platform API. See /docs for usage."}
+
+
+@app.get("/health", response_model=HealthResponse)
+def health():
+    """Simple liveness check."""
+    return HealthResponse(
+        status="ok",
+        architecture=ARCHITECTURE,
+        device=str(DEVICE),
+    )
+
+
+@app.post("/predict", response_model=PredictionResponse)
+async def predict_endpoint(file: UploadFile = File(...)):
+    """Upload a brain MRI and get the predicted class and probabilities."""
+    _validate_image(file)
+    data = await file.read()
+    tmp_path = _save_bytes_to_temp(data, file.filename)
+    try:
+        result = predict(tmp_path)
+    finally:
+        os.remove(tmp_path)
+    return PredictionResponse(**result)
+
+
+@app.post("/predict/report", response_model=FullReportResponse)
+async def predict_report_endpoint(file: UploadFile = File(...)):
+    """Upload a brain MRI and get prediction, Grad-CAM heatmap, and a full report."""
+    _validate_image(file)
+    data = await file.read()
+    tmp_path = _save_bytes_to_temp(data, file.filename)
+    try:
+        prediction = predict(tmp_path)
+        heatmap_img, _, _ = generate_heatmap(tmp_path)
+        report = generate_report(prediction)
+        heatmap_b64 = _encode_image_base64(heatmap_img)
+    finally:
+        os.remove(tmp_path)
+
+    return FullReportResponse(
+        predicted_class=prediction["predicted_class"],
+        confidence=prediction["confidence"],
+        all_probabilities=prediction["all_probabilities"],
+        report=ReportSections(**report["sections"]),
+        raw_report=report["raw_report"],
+        heatmap_base64=heatmap_b64,
+        model=report["model"],
+    )
