@@ -1,0 +1,34 @@
+{
+  "architecture": "densenet121",
+  "num_classes": 4,
+  "classes": [
+    "glioma",
+    "meningioma",
+    "notumor",
+    "pituitary"
+  ],
+  "input_size": 224,
+  "normalization": {
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "gradcam_target_layer": "features.norm5",
+  "metrics": {
+    "macro_roc_auc": 0.9892,
+    "per_class_sensitivity": {
+      "glioma": 0.8125,
+      "meningioma": 0.99,
+      "notumor": 0.9975,
+      "pituitary": 0.9875
+    }
+  },
+  "trained_at": "2026-07-24T17:47:17.083839Z"
+}
