@@ -3,9 +3,11 @@ config.py
 Central configuration for the Medical AI Platform.
 Reads model_metadata.json and exposes settings to other modules.
 """
-
+import os
 import json
 from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Locate the project root (two levels up from this file)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -33,6 +35,11 @@ INPUT_SIZE = METADATA["input_size"]
 NORM_MEAN = METADATA["normalization"]["mean"]
 NORM_STD = METADATA["normalization"]["std"]
 GRADCAM_TARGET_LAYER = METADATA["gradcam_target_layer"]
+
+# ── LLM settings (loaded from .env) ──────────────────
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
+LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-20b")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 
 def print_config():
