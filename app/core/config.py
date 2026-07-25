@@ -9,6 +9,9 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
+
 # Locate the project root (two levels up from this file)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
