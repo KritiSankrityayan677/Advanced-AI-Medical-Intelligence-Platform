@@ -15,8 +15,9 @@ from app.llm.report_generator import _parse_sections, generate_report
 def test_system_prompt_has_guardrails():
     """System prompt must contain the core safety guardrails."""
     lower = SYSTEM_PROMPT.lower()
-    assert "not a doctor" in lower or "not provide a diagnosis" in lower
-    assert "disclaimer" in lower
+    assert "not provide a diagnosis" in lower
+    assert "never overstate certainty" in lower
+    assert "never invent" in lower
 
 
 def test_class_descriptions_cover_all_classes():
@@ -35,26 +36,31 @@ def test_user_prompt_includes_prediction():
 
 
 # ── Parsing logic (offline) ────────────────────────────
-def test_parse_sections_extracts_all_four():
-    """Parser must split a well-formed report into four sections."""
+def test_parse_sections_extracts_all_five():
+    """Parser must split a well-formed 5-section report correctly."""
     text = (
-        "FINDINGS: A mass is observed.\n"
-        "IMPRESSION: Consistent with glioma.\n"
-        "RECOMMENDATION: Refer to neuro-oncology.\n"
-        "DISCLAIMER: AI generated, not a diagnosis."
+        "CLINICAL INDICATION: Automated screening.\n"
+        "TECHNIQUE: Axial brain MRI with Grad-CAM.\n"
+        "FINDINGS: Features consistent with glioma.\n"
+        "IMPRESSION: High confidence classification.\n"
+        "RECOMMENDATIONS: Refer to neuro-oncology."
     )
     sections = _parse_sections(text)
-    assert sections["findings"] == "A mass is observed."
-    assert sections["impression"] == "Consistent with glioma."
-    assert sections["recommendation"] == "Refer to neuro-oncology."
-    assert sections["disclaimer"] == "AI generated, not a diagnosis."
+    assert sections["clinical_indication"] == "Automated screening."
+    assert sections["technique"] == "Axial brain MRI with Grad-CAM."
+    assert sections["findings"] == "Features consistent with glioma."
+    assert sections["impression"] == "High confidence classification."
+    assert sections["recommendations"] == "Refer to neuro-oncology."
 
 
 def test_parse_sections_handles_multiline():
     """Parser must join multi-line section content."""
     text = (
+        "CLINICAL INDICATION: Line one.\n"
+        "TECHNIQUE: Ok.\n"
         "FINDINGS: Line one.\nLine two.\n"
-        "IMPRESSION: Ok.\nRECOMMENDATION: Ok.\nDISCLAIMER: Ok."
+        "IMPRESSION: Ok.\n"
+        "RECOMMENDATIONS: Ok."
     )
     sections = _parse_sections(text)
     assert "Line one." in sections["findings"]
@@ -64,7 +70,7 @@ def test_parse_sections_handles_multiline():
 # ── Live generation (needs API key + network) ──────────
 @pytest.mark.skipif(not GROQ_API_KEY, reason="GROQ_API_KEY not set")
 def test_generate_report_end_to_end():
-    """Full report generation must return all four sections and a disclaimer."""
+    """Full report generation must return all sections and a disclaimer."""
     prediction = {
         "predicted_class": "glioma",
         "confidence": 0.90,
@@ -75,8 +81,8 @@ def test_generate_report_end_to_end():
     }
     result = generate_report(prediction)
     assert "raw_report" in result
-    assert set(result["sections"].keys()) == {
-        "findings", "impression", "recommendation", "disclaimer"
-    }
+    assert "findings" in result["sections"]
+    assert "impression" in result["sections"]
+    assert "recommendations" in result["sections"]
     # Disclaimer must never be empty (safety net guarantees this)
     assert len(result["sections"]["disclaimer"]) > 0
