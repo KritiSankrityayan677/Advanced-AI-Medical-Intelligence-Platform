@@ -2,6 +2,10 @@
 # https://pytorch.org/get-started/locally/
 # Then install the rest with: pip install -r requirements.txt
 
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.3.0+cpu
+torchvision==0.18.0+cpu
+
 # Deep learning
 torch==2.3.0
 torchvision==0.18.0
