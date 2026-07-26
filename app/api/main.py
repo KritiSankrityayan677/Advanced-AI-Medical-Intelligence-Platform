@@ -27,6 +27,21 @@ from app.api.schemas import (
     FullReportResponse,
 )
 
+from typing import List
+from fastapi import Depends
+from sqlalchemy.orm import Session
+
+from app.db.database import Base, engine, get_db
+from app.db import crud
+
+from app.api.schemas import (
+    HealthResponse,
+    PredictionResponse,
+    ReportSections,
+    FullReportResponse,
+    PredictionRecord,
+    HistoryResponse,
+)
 
 # ── Create the app ─────────────────────────────────────
 app = FastAPI(
@@ -35,6 +50,9 @@ app = FastAPI(
                 "and AI-generated preliminary reports.",
     version="1.0.0",
 )
+
+# Create database tables on first startup (safe to call every time)
+Base.metadata.create_all(bind=engine)
 
 # Allow browser-based frontends (Phase 6) to call this API
 app.add_middleware(
@@ -84,7 +102,10 @@ def health():
 
 
 @app.post("/predict", response_model=PredictionResponse)
-async def predict_endpoint(file: UploadFile = File(...)):
+async def predict_endpoint(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
     """Upload a brain MRI and get the predicted class and probabilities."""
     _validate_image(file)
     data = await file.read()
@@ -93,11 +114,25 @@ async def predict_endpoint(file: UploadFile = File(...)):
         result = predict(tmp_path)
     finally:
         os.remove(tmp_path)
+
+    # Persist the prediction
+    crud.create_prediction(
+        db=db,
+        filename=file.filename,
+        predicted_class=result["predicted_class"],
+        confidence=result["confidence"],
+        all_probabilities=result["all_probabilities"],
+        model_architecture=ARCHITECTURE,
+    )
+
     return PredictionResponse(**result)
 
 
 @app.post("/predict/report", response_model=FullReportResponse)
-async def predict_report_endpoint(file: UploadFile = File(...)):
+async def predict_report_endpoint(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
     """Upload a brain MRI and get prediction, Grad-CAM heatmap, and a full report."""
     _validate_image(file)
     data = await file.read()
@@ -110,6 +145,18 @@ async def predict_report_endpoint(file: UploadFile = File(...)):
     finally:
         os.remove(tmp_path)
 
+    # Persist the prediction along with the report
+    crud.create_prediction(
+        db=db,
+        filename=file.filename,
+        predicted_class=prediction["predicted_class"],
+        confidence=prediction["confidence"],
+        all_probabilities=prediction["all_probabilities"],
+        model_architecture=ARCHITECTURE,
+        report_text=report["raw_report"],
+        report_model=report["model"],
+    )
+
     return FullReportResponse(
         predicted_class=prediction["predicted_class"],
         confidence=prediction["confidence"],
@@ -119,3 +166,30 @@ async def predict_report_endpoint(file: UploadFile = File(...)):
         heatmap_base64=heatmap_b64,
         model=report["model"],
     )
+    
+@app.get("/history", response_model=HistoryResponse)
+def history_endpoint(
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """Return the most recent predictions, newest first."""
+    predictions = crud.get_predictions(db, limit=limit, offset=offset)
+    total = crud.count_predictions(db)
+    return HistoryResponse(
+        total=total,
+        count=len(predictions),
+        predictions=predictions,
+    )
+
+
+@app.get("/history/{prediction_id}", response_model=PredictionRecord)
+def history_by_id_endpoint(
+    prediction_id: int,
+    db: Session = Depends(get_db),
+):
+    """Return one specific prediction by ID."""
+    row = crud.get_prediction_by_id(db, prediction_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Prediction not found")
+    return row

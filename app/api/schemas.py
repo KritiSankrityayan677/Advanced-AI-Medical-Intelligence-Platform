@@ -6,6 +6,10 @@ FastAPI uses these for validation and auto-generated documentation.
 
 from typing import Dict
 from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional
+from typing import Dict, List, Optional
+from datetime import datetime
 
 
 class HealthResponse(BaseModel):
@@ -39,3 +43,25 @@ class FullReportResponse(BaseModel):
     raw_report: str
     heatmap_base64: str
     model: str
+    
+class PredictionRecord(BaseModel):
+    """One historical prediction row."""
+    id: int
+    timestamp: datetime
+    filename: Optional[str]
+    predicted_class: str
+    confidence: float
+    all_probabilities: Dict[str, float]
+    report_text: Optional[str]
+    report_model: Optional[str]
+    model_architecture: str
+
+    class Config:
+        from_attributes = True  # allow reading from SQLAlchemy objects
+
+
+class HistoryResponse(BaseModel):
+    """Paginated history response."""
+    total: int
+    count: int
+    predictions: List[PredictionRecord]

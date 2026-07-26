@@ -9,3 +9,4 @@ data/
 .DS_Store
 gradcam_output.png
 test_samples/
+medical_ai.db
