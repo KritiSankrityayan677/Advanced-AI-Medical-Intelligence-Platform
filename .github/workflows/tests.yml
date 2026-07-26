@@ -9,7 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,16 +31,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install numpy Pillow matplotlib opencv-python grad-cam pytest
-
-      - name: Run configuration tests
-        run: pytest tests/test_config.py -v
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-          pip install numpy Pillow matplotlib opencv-python grad-cam pytest
-          pip install groq python-dotenv
           pip install groq python-dotenv sqlalchemy fastapi uvicorn python-multipart httpx
 
       - name: Run offline tests
