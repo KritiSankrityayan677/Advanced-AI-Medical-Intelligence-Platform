@@ -27,11 +27,13 @@ class PredictionResponse(BaseModel):
 
 
 class ReportSections(BaseModel):
-    """The four structured sections of a generated report."""
-    findings: str
-    impression: str
-    recommendation: str
-    disclaimer: str
+    """The structured sections of a generated radiology report."""
+    clinical_indication: str = ""
+    technique: str = ""
+    findings: str = ""
+    impression: str = ""
+    recommendations: str = ""
+    disclaimer: str = ""
 
 
 class FullReportResponse(BaseModel):

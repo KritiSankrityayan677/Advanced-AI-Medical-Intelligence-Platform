@@ -64,8 +64,8 @@ def sidebar():
 
     st.sidebar.markdown("---")
     st.sidebar.caption(
-        "⚠️ This tool provides preliminary AI analysis only. "
-        "All results must be reviewed by a qualified doctor."
+        "⚠️ All outputs are preliminary and require radiologist review. "
+        "This tool does not provide medical diagnoses."
     )
 
     # Silent health check — only warn if API is down
@@ -83,9 +83,9 @@ def sidebar():
 def render_analyze_page():
     st.title("Analyze a Brain MRI Scan")
     st.markdown(
-        "Upload a brain MRI image below. Our AI will review the scan, "
-        "highlight areas of interest, and prepare a preliminary report "
-        "for your doctor to review."
+        "Upload a brain MRI image for automated classification. The system will "
+        "produce a classification with region-of-interest visualization. A structured "
+        "radiology report can be generated after review of the initial results."
     )
 
     uploaded = st.file_uploader(
@@ -99,28 +99,39 @@ def render_analyze_page():
         return
 
     image_bytes = uploaded.getvalue()
-    # Fingerprint the upload so we only analyze each file once per session
     upload_id = hashlib.md5(image_bytes).hexdigest()
 
     col_a, col_b = st.columns([1, 2])
     with col_a:
         st.image(image_bytes, caption="Your scan", use_container_width=True)
     with col_b:
-        st.markdown("### Ready to review")
+        st.markdown("### Ready to analyze")
         st.write(f"**File:** {uploaded.name}")
         st.write(f"**Size:** {len(image_bytes) / 1024:.0f} KB")
 
         already_analyzed = st.session_state.get("last_upload_id") == upload_id
 
-        if already_analyzed:
-            st.success("This scan has already been analyzed below.")
-        elif st.button("🔬 Analyze scan", type="primary", use_container_width=True):
-            _run_analysis(image_bytes, uploaded.name, upload_id)
+        if not already_analyzed:
+            if st.button("🔬 Run classification", type="primary", use_container_width=True):
+                _run_classification(image_bytes, uploaded.name, upload_id)
+        else:
+            st.success("Classification complete — see results below.")
+
+    # Show results if analysis was already run for this upload
+    if st.session_state.get("last_upload_id") == upload_id:
+        _render_classification(
+            st.session_state["last_result"],
+            st.session_state["last_image"],
+        )
+
+        # Report generation section
+        st.markdown("---")
+        _render_report_section(upload_id, image_bytes, uploaded.name)
 
 
-def _run_analysis(image_bytes: bytes, filename: str, upload_id: str):
-    """Call the API once, store result in session_state to prevent double calls."""
-    with st.spinner("Analyzing your scan — this can take up to a minute..."):
+def _run_classification(image_bytes: bytes, filename: str, upload_id: str):
+    """Call the API and store result; report is deferred."""
+    with st.spinner("Analyzing scan..."):
         try:
             result = predict_report(image_bytes, filename=filename)
         except requests.exceptions.HTTPError as e:
@@ -137,73 +148,115 @@ def _run_analysis(image_bytes: bytes, filename: str, upload_id: str):
             )
             return
 
-    # Record so re-runs don't retrigger the API
     st.session_state["last_upload_id"] = upload_id
     st.session_state["last_result"] = result
     st.session_state["last_image"] = image_bytes
+    st.session_state["report_shown"] = False
+    st.rerun()
 
-    _render_results(result, image_bytes)
 
-
-def _render_results(result: dict, image_bytes: bytes):
-    st.success("Analysis complete.")
+def _render_classification(result: dict, image_bytes: bytes):
+    """Render classification + XAI, without the LLM report."""
     st.markdown("---")
 
     friendly_class = _friendly_class_name(result["predicted_class"])
+    context = _get_class_context(result["predicted_class"])
 
-    # Prediction summary
+    # Summary metrics
     c1, c2 = st.columns(2)
-    c1.metric("Finding", friendly_class)
-    c2.metric("Confidence", f"{result['confidence']:.0%}")
+    c1.metric("Classification", friendly_class)
+    c2.metric("Model confidence", f"{result['confidence']:.0%}")
 
     if result["confidence"] < 0.70:
         st.warning(
-            "The AI is not very confident about this result. "
-            "A doctor's review is especially important here."
+            "Confidence for this classification is below 70%. "
+            "Correlation with clinical findings is especially important."
         )
 
-    # Class probabilities (renamed for clarity)
-    st.markdown("### How the AI weighed each possibility")
+    # Class context (educational, based on general medical knowledge)
+    if context.get("definition"):
+        with st.expander(f"About {friendly_class.lower()}", expanded=True):
+            st.markdown(f"**Definition.** {context['definition']}")
+            st.markdown(f"**Typical location.** {context['typical_location']}")
+            st.markdown(f"**Clinical note.** {context['clinical_note']}")
+
+    # Probability distribution
+    st.markdown("### Probability distribution")
+    st.caption("Relative likelihood assigned to each class by the model.")
     st.bar_chart(
         {_friendly_class_name(k): v for k, v in result["all_probabilities"].items()}
     )
 
-    # Grad-CAM heatmap
-    st.markdown("### What the AI focused on")
-    st.caption(
-        "The colored overlay shows the areas of the scan the AI paid most attention to. "
-        "Warm colors (red/yellow) mean the AI looked there strongly."
+    # XAI section
+    st.markdown("### Region of interest")
+    st.markdown(
+        "The classification model was trained on thousands of annotated brain MRI scans. "
+        "During training, it learned visual patterns associated with each class. "
+        "The overlay below highlights the image regions that most influenced this "
+        "particular classification."
     )
     heatmap_bytes = base64.b64decode(result["heatmap_base64"])
     left, right = st.columns(2)
     with left:
         st.image(image_bytes, caption="Original scan", use_container_width=True)
     with right:
-        st.image(heatmap_bytes, caption="AI attention overlay", use_container_width=True)
+        st.image(heatmap_bytes, caption="Region of interest overlay", use_container_width=True)
 
-    # Report
-    st.markdown("### Preliminary AI report")
+    st.caption(
+        f"Warmer colors (red/yellow) indicate higher influence on the classification. "
+        f"{context.get('typical_location', '')}"
+    )
 
-    for section, heading in [
-        ("findings", "What the AI observed"),
-        ("impression", "The AI's interpretation"),
-        ("recommendation", "Suggested next steps"),
-    ]:
-        st.markdown(f"**{heading}**")
-        st.write(result["report"][section])
 
-    # Warm, human disclaimer
+def _render_report_section(upload_id: str, image_bytes: bytes, filename: str):
+    """Section for generating and viewing the structured report."""
+    result = st.session_state["last_result"]
+
+    st.subheader("📄 Structured radiology report")
+
+    if not st.session_state.get("report_shown"):
+        st.markdown(
+            "Generate a standard-format preliminary report for radiologist review. "
+            "The report will include Clinical Indication, Technique, Findings, "
+            "Impression, and Recommendations."
+        )
+        if st.button("📝 Generate report", type="primary"):
+            st.session_state["report_shown"] = True
+            st.rerun()
+    else:
+        _render_report(result)
+
+
+def _render_report(result: dict):
+    """Render the structured radiology report."""
+    sections = result["report"]
+
+    section_order = [
+        ("clinical_indication", "Clinical indication"),
+        ("technique", "Technique"),
+        ("findings", "Findings"),
+        ("impression", "Impression"),
+        ("recommendations", "Recommendations"),
+    ]
+
+    for key, heading in section_order:
+        content = sections.get(key, "").strip()
+        if not content and key == "recommendations":
+            content = sections.get("recommendation", "").strip()
+        if content:
+            st.markdown(f"**{heading}**")
+            st.write(content)
+
     st.markdown(
         f"""
         <div class="disclaimer-box">
             <strong>⚠️ Important</strong><br>
-            {result['report']['disclaimer']}<br><br>
-            This is <strong>not a diagnosis</strong>. Always share these results with your doctor before making any medical decisions.
+            {sections['disclaimer']}<br><br>
+            This report is <strong>not a diagnosis</strong>. It is intended to support review by a qualified radiologist, not to replace it.
         </div>
         """,
         unsafe_allow_html=True,
     )
-
 
 # ── Past scans page ────────────────────────────────────
 def render_history_page():
@@ -248,32 +301,39 @@ def render_about_page():
 
     st.markdown(
         """
-        ### What this is
-        This is an AI-assisted tool that helps review brain MRI scans. Upload a scan,
-        and the system will suggest what it sees, show you where it looked, and prepare
-        a written summary that your doctor can review alongside the images.
+        ### Purpose
 
-        ### What it can suggest
-        The AI has been trained to recognize four common findings on brain MRI scans:
-        - Glioma
-        - Meningioma
-        - Pituitary tumor
-        - No tumor detected
+        This platform provides automated preliminary analysis of brain MRI scans
+        to support radiologist workflow. It produces a classification, a visual
+        indication of the region that most influenced the classification, and a
+        structured preliminary report in standard radiology format.
 
-        ### How to use it well
-        - Upload a clear MRI image (JPG or PNG).
-        - Read the "confidence" number — if it's below 70%, the AI is unsure.
-        - Look at the highlighted areas to see what caught the AI's attention.
-        - Take everything to your doctor. Always.
+        ### Scope of analysis
+
+        The system is trained to identify four categories on brain MRI:
+
+        - **Glioma** — tumor of glial cell origin, commonly cerebral
+        - **Meningioma** — tumor of the meninges, typically along the convexities or skull base
+        - **Pituitary tumor** — lesion within the sella turcica
+        - **No tumor detected** — no neoplastic finding identified
+
+        ### How to interpret the output
+
+        - **Classification** — the model's best assessment of the scan category.
+        - **Model confidence** — a probability between 0 and 100%. Values below 70%
+          should be interpreted with additional caution.
+        - **Region of interest** — the highlighted region of the scan indicates
+          where the classification was most strongly influenced. Warmer colors
+          indicate higher influence.
+        - **Preliminary report** — a structured draft in the standard radiology
+          format (Clinical Indication, Technique, Findings, Impression, Recommendations).
 
         ### Important safety information
-        This tool is intended to **support** medical review, not replace it. It has been
-        built for educational and research purposes. It is not approved as a medical
-        device. The results it produces are **not a diagnosis** and must always be
-        interpreted by a qualified doctor or radiologist.
 
-        If you or someone you love is worried about a scan or a symptom, please contact
-        a healthcare provider directly.
+        This platform is a research and decision-support tool. It is not approved
+        as a medical device. Outputs are preliminary, are **not a diagnosis**, and
+        must always be reviewed and correlated with clinical findings by a qualified
+        radiologist or physician before any clinical decision.
         """
     )
 
@@ -289,6 +349,14 @@ _FRIENDLY_NAMES = {
 
 def _friendly_class_name(raw: str) -> str:
     return _FRIENDLY_NAMES.get(raw, raw.capitalize())
+
+def _get_class_context(raw: str) -> dict:
+    """Fetch clinical context for the predicted class."""
+    try:
+        from app.llm.medical_context import get_context
+        return get_context(raw)
+    except Exception:
+        return {}
 
 
 # ── Router ─────────────────────────────────────────────

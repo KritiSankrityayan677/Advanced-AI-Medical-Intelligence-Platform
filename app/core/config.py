@@ -7,7 +7,11 @@ import os
 import json
 from pathlib import Path
 
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    def load_dotenv(*args, **kwargs):
+        pass  # dotenv not installed, skip silently
 
 # Load environment variables from .env file
 load_dotenv()
