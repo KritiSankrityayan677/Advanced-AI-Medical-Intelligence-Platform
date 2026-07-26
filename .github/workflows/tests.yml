@@ -41,6 +41,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
           pip install numpy Pillow matplotlib opencv-python grad-cam pytest
+          pip install groq python-dotenv
           pip install groq python-dotenv sqlalchemy fastapi uvicorn python-multipart httpx
 
       - name: Run offline tests
