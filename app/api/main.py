@@ -15,6 +15,7 @@ import gc
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.concurrency import run_in_threadpool
 from groq import APITimeoutError, APIConnectionError
 
 from app.core.config import ARCHITECTURE, LLM_MODEL
@@ -113,11 +114,11 @@ async def predict_endpoint(
     data = await file.read()
     tmp_path = _save_bytes_to_temp(data, file.filename)
     try:
-        result = predict(tmp_path)
+        result = await run_in_threadpool(predict, tmp_path)
         gc.collect()
-        heatmap_img, _, _ = generate_heatmap(tmp_path)
+        heatmap_img, _, _ = await run_in_threadpool(generate_heatmap, tmp_path)
         gc.collect()
-        heatmap_b64 = _encode_image_base64(heatmap_img)
+        heatmap_b64 = await run_in_threadpool(_encode_image_base64, heatmap_img)
         gc.collect()
     finally:
         os.remove(tmp_path)
@@ -145,12 +146,12 @@ async def predict_report_endpoint(
     data = await file.read()
     tmp_path = _save_bytes_to_temp(data, file.filename)
     try:
-        prediction = predict(tmp_path)
+        prediction = await run_in_threadpool(predict, tmp_path)
         gc.collect()
-        heatmap_img, _, _ = generate_heatmap(tmp_path)
+        heatmap_img, _, _ = await run_in_threadpool(generate_heatmap, tmp_path)
         gc.collect()
         try:
-            report = generate_report(prediction)
+            report = await run_in_threadpool(generate_report, prediction)
         except APITimeoutError:
             raise HTTPException(
                 status_code=504,
@@ -162,7 +163,7 @@ async def predict_report_endpoint(
                 detail="Could not reach the report-generation service (Groq). Please try again shortly.",
             )
         gc.collect()
-        heatmap_b64 = _encode_image_base64(heatmap_img)
+        heatmap_b64 = await run_in_threadpool(_encode_image_base64, heatmap_img)
         gc.collect()
     finally:
         os.remove(tmp_path)
