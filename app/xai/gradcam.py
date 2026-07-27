@@ -80,11 +80,15 @@ def generate_heatmap(image_path, target_class=None):
     target_layer = _get_target_layer(model)
     targets = [ClassifierOutputTarget(target_class)]
 
-    # Grad-CAM needs gradients only for this narrow block
-    cam = GradCAM(model=model, target_layers=[target_layer])
-    grayscale_cam = cam(input_tensor=input_tensor, targets=targets)
+    # Grad-CAM needs gradients only for this narrow block.
+    # Must use the context manager (or call .release()) — GradCAM registers
+    # forward/backward hooks on the (globally cached) model, and those hooks
+    # are only removed via release(); `del cam` alone leaks them, so they pile
+    # up on every request and make every subsequent call slower.
+    with GradCAM(model=model, target_layers=[target_layer]) as cam:
+        grayscale_cam = cam(input_tensor=input_tensor, targets=targets)
     grayscale_cam = grayscale_cam[0]
-    del cam, targets
+    del targets
     gc.collect()
 
     rgb_image = _tensor_to_original_rgb(image_path)
