@@ -1,3 +1,16 @@
+---
+title: NeuroVision AI Backend
+emoji: 🧠
+colorFrom: blue
+colorTo: purple
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
+
+
+
 # Medical AI Platform
 
 Advanced AI Medical Intelligence Platform for brain tumor classification from MRI scans.
