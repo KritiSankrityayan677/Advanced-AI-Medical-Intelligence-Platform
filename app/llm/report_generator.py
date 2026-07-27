@@ -35,7 +35,9 @@ class GroqReportGenerator(ReportGenerator):
                 "(see .env.example)."
             )
         self.model = model
-        self.client = Groq(api_key=api_key)
+        # Explicit timeout so a slow/unresponsive Groq call fails fast with a
+        # clear error instead of hanging until Railway's edge kills the request.
+        self.client = Groq(api_key=api_key, timeout=60.0, max_retries=1)
 
     def generate(self, predicted_class, confidence, all_probabilities) -> str:
         user_prompt = build_user_prompt(predicted_class, confidence, all_probabilities)

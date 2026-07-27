@@ -53,6 +53,7 @@ def test_predict_returns_valid_prediction():
     assert "predicted_class" in body
     assert 0.0 <= body["confidence"] <= 1.0
     assert len(body["all_probabilities"]) == 4
+    assert len(body["heatmap_base64"]) > 0
 
 
 @pytest.mark.skipif(not (MODEL_WEIGHTS_PATH.exists() and GROQ_API_KEY),

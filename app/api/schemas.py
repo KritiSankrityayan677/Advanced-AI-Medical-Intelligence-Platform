@@ -24,6 +24,7 @@ class PredictionResponse(BaseModel):
     predicted_class: str
     confidence: float
     all_probabilities: Dict[str, float]
+    heatmap_base64: str
 
 
 class ReportSections(BaseModel):

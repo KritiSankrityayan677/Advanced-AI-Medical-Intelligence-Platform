@@ -11,9 +11,9 @@ import streamlit as st
 
 from api_client import (
     check_health,
+    predict,
     predict_report,
     get_history,
-    API_BASE_URL,
 )
 
 API_BASE_URL="https://neurovision-ai.up.railway.app"
@@ -134,13 +134,18 @@ def _run_classification(image_bytes: bytes, filename: str, upload_id: str):
     """Call the API and store result; report is deferred."""
     with st.spinner("Analyzing scan..."):
         try:
-            result = predict_report(image_bytes, filename=filename)
+            result = predict(image_bytes, filename=filename)
         except requests.exceptions.HTTPError as e:
             st.error(
                 "We couldn't complete the analysis. "
                 "Please check the file is a valid image and try again."
             )
             st.caption(f"(Technical details: {e.response.status_code})")
+            return
+        except requests.exceptions.Timeout:
+            st.error(
+                "The analysis took too long. The backend may still be processing the request."
+            )
             return
         except requests.exceptions.RequestException:
             st.error(
@@ -196,12 +201,18 @@ def _render_classification(result: dict, image_bytes: bytes):
         "The overlay below highlights the image regions that most influenced this "
         "particular classification."
     )
-    heatmap_bytes = base64.b64decode(result["heatmap_base64"])
-    left, right = st.columns(2)
-    with left:
+
+    heatmap_b64 = result.get("heatmap_base64")
+    if heatmap_b64:
+        heatmap_bytes = base64.b64decode(heatmap_b64)
+        left, right = st.columns(2)
+        with left:
+            st.image(image_bytes, caption="Original scan", use_container_width=True)
+        with right:
+            st.image(heatmap_bytes, caption="Region of interest overlay", use_container_width=True)
+    else:
+        st.info("Heatmap visualization is not available for this response.")
         st.image(image_bytes, caption="Original scan", use_container_width=True)
-    with right:
-        st.image(heatmap_bytes, caption="Region of interest overlay", use_container_width=True)
 
     st.caption(
         f"Warmer colors (red/yellow) indicate higher influence on the classification. "
@@ -211,7 +222,7 @@ def _render_classification(result: dict, image_bytes: bytes):
 
 def _render_report_section(upload_id: str, image_bytes: bytes, filename: str):
     """Section for generating and viewing the structured report."""
-    result = st.session_state["last_result"]
+    result = st.session_state.get("last_result")
 
     st.subheader("📄 Structured radiology report")
 
@@ -222,15 +233,40 @@ def _render_report_section(upload_id: str, image_bytes: bytes, filename: str):
             "Impression, and Recommendations."
         )
         if st.button("📝 Generate report", type="primary"):
-            st.session_state["report_shown"] = True
-            st.rerun()
-    else:
+            _generate_report(image_bytes, filename, upload_id)
+    elif result is not None:
         _render_report(result)
+
+
+def _generate_report(image_bytes: bytes, filename: str, upload_id: str):
+    """Call the report-generating API and store the result."""
+    with st.spinner("Generating report..."):
+        try:
+            result = predict_report(image_bytes, filename=filename)
+        except requests.exceptions.HTTPError as e:
+            st.error(
+                "We couldn't generate the report. Please try again in a few moments."
+            )
+            st.caption(f"(Technical details: {e.response.status_code})")
+            return
+        except requests.exceptions.Timeout:
+            st.error(
+                "Report generation took too long. The backend may still be processing the request."
+            )
+            return
+        except requests.exceptions.RequestException:
+            st.error("The report service is not responding. Please try again shortly.")
+            return
+
+    st.session_state["report_shown"] = True
+    st.session_state["last_result"] = result
+    st.session_state["last_image"] = image_bytes
+    st.rerun()
 
 
 def _render_report(result: dict):
     """Render the structured radiology report."""
-    sections = result["report"]
+    sections = result.get("report", {})
 
     section_order = [
         ("clinical_indication", "Clinical indication"),

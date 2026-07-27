@@ -15,6 +15,7 @@ import gc
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from groq import APITimeoutError, APIConnectionError
 
 from app.core.config import ARCHITECTURE, LLM_MODEL
 from app.models.model_loader import DEVICE
@@ -107,12 +108,17 @@ async def predict_endpoint(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """Upload a brain MRI and get the predicted class and probabilities."""
+    """Upload a brain MRI and get the predicted class, probabilities, and Grad-CAM heatmap."""
     _validate_image(file)
     data = await file.read()
     tmp_path = _save_bytes_to_temp(data, file.filename)
     try:
         result = predict(tmp_path)
+        gc.collect()
+        heatmap_img, _, _ = generate_heatmap(tmp_path)
+        gc.collect()
+        heatmap_b64 = _encode_image_base64(heatmap_img)
+        gc.collect()
     finally:
         os.remove(tmp_path)
 
@@ -126,7 +132,7 @@ async def predict_endpoint(
         model_architecture=ARCHITECTURE,
     )
 
-    return PredictionResponse(**result)
+    return PredictionResponse(**result, heatmap_base64=heatmap_b64)
 
 
 @app.post("/predict/report", response_model=FullReportResponse)
@@ -143,7 +149,18 @@ async def predict_report_endpoint(
         gc.collect()
         heatmap_img, _, _ = generate_heatmap(tmp_path)
         gc.collect()
-        report = generate_report(prediction)
+        try:
+            report = generate_report(prediction)
+        except APITimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail="The report-generation service (Groq) timed out. Please try again.",
+            )
+        except APIConnectionError:
+            raise HTTPException(
+                status_code=502,
+                detail="Could not reach the report-generation service (Groq). Please try again shortly.",
+            )
         gc.collect()
         heatmap_b64 = _encode_image_base64(heatmap_img)
         gc.collect()

@@ -9,13 +9,13 @@ import requests
 
 # Default to localhost, but allow override via environment variable
 #API_BASE_URL = os.getenv("MEDICAL_AI_API_URL", "http://127.0.0.1:8000")
-API_BASE_URL="https://neurovision-ai.up.railway.app"
+API_BASE_URL = "https://neurovision-ai.up.railway.app"
 
 
 def check_health() -> dict:
     """Check if the API is reachable and return its health status."""
     print(f"Checking health of API at {API_BASE_URL}")
-    response = requests.get(f"{API_BASE_URL}/health", timeout=(10,300))
+    response = requests.get(f"{API_BASE_URL}/health", timeout=(10, 300))
     response.raise_for_status()
     return response.json()
 
