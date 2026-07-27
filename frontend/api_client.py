@@ -6,10 +6,13 @@ Streamlit UI code calls these functions instead of hitting HTTP directly.
 
 import os
 import requests
+from dotenv import load_dotenv
 
-# Default to localhost, but allow override via environment variable
-#API_BASE_URL = os.getenv("MEDICAL_AI_API_URL", "http://127.0.0.1:8000")
-API_BASE_URL = "https://neurovision-ai.up.railway.app"
+load_dotenv()
+
+# Defaults to the deployed Railway API; set MEDICAL_AI_API_URL to point at a
+# local backend instead, e.g. MEDICAL_AI_API_URL=http://127.0.0.1:8000
+API_BASE_URL = os.getenv("MEDICAL_AI_API_URL", "https://neurovision-ai.up.railway.app")
 
 
 def check_health() -> dict:

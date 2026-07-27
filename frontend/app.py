@@ -16,8 +16,6 @@ from api_client import (
     get_history,
 )
 
-API_BASE_URL="https://neurovision-ai.up.railway.app"
-
 # ── Page config ────────────────────────────────────────
 st.set_page_config(
     page_title="Brain MRI Analysis",

@@ -12,14 +12,21 @@ import os
 import base64
 import tempfile
 import gc
+import asyncio
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.concurrency import run_in_threadpool
 from groq import APITimeoutError, APIConnectionError
 
-from app.core.config import ARCHITECTURE, LLM_MODEL
-from app.models.model_loader import DEVICE
+from app.core.config import (
+    ARCHITECTURE,
+    LLM_MODEL,
+    MAX_CONCURRENT_INFERENCE,
+    INFERENCE_QUEUE_TIMEOUT_SECONDS,
+)
+from app.models.model_loader import DEVICE, get_model
 from app.models.predictor import predict
 from app.xai.gradcam import generate_heatmap
 from app.llm.report_generator import generate_report
@@ -46,12 +53,27 @@ from app.api.schemas import (
     HistoryResponse,
 )
 
+# Gate on the heavy inference pipelines (predict + Grad-CAM [+ report]) so
+# requests run one at a time instead of thrashing for the same limited CPU.
+# See app/core/config.py for the rationale.
+_inference_semaphore = asyncio.Semaphore(MAX_CONCURRENT_INFERENCE)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Load the model at boot, not on the first real request, so no user
+    # request ever pays the cold-load cost.
+    get_model()
+    yield
+
+
 # ── Create the app ─────────────────────────────────────
 app = FastAPI(
     title="Medical AI Platform API",
     description="Brain tumor classification with Grad-CAM explainability "
                 "and AI-generated preliminary reports.",
     version="1.0.0",
+    lifespan=_lifespan,
 )
 
 # Create database tables on first startup (safe to call every time)
@@ -64,6 +86,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+async def _acquire_inference_slot():
+    """Wait for a free inference slot, but never wait indefinitely — fail
+    fast with a clear 'busy' response instead of queueing silently until
+    some external proxy kills the connection with no explanation."""
+    try:
+        await asyncio.wait_for(
+            _inference_semaphore.acquire(), timeout=INFERENCE_QUEUE_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail="Server is busy processing another request. Please try again shortly.",
+        )
 
 
 # ── Helpers ────────────────────────────────────────────
@@ -113,7 +150,10 @@ async def predict_endpoint(
     _validate_image(file)
     data = await file.read()
     tmp_path = _save_bytes_to_temp(data, file.filename)
+    acquired = False
     try:
+        await _acquire_inference_slot()
+        acquired = True
         result = await run_in_threadpool(predict, tmp_path)
         gc.collect()
         heatmap_img, _, _ = await run_in_threadpool(generate_heatmap, tmp_path)
@@ -121,6 +161,8 @@ async def predict_endpoint(
         heatmap_b64 = await run_in_threadpool(_encode_image_base64, heatmap_img)
         gc.collect()
     finally:
+        if acquired:
+            _inference_semaphore.release()
         os.remove(tmp_path)
 
     # Persist the prediction
@@ -145,7 +187,10 @@ async def predict_report_endpoint(
     _validate_image(file)
     data = await file.read()
     tmp_path = _save_bytes_to_temp(data, file.filename)
+    acquired = False
     try:
+        await _acquire_inference_slot()
+        acquired = True
         prediction = await run_in_threadpool(predict, tmp_path)
         gc.collect()
         heatmap_img, _, _ = await run_in_threadpool(generate_heatmap, tmp_path)
@@ -166,6 +211,8 @@ async def predict_report_endpoint(
         heatmap_b64 = await run_in_threadpool(_encode_image_base64, heatmap_img)
         gc.collect()
     finally:
+        if acquired:
+            _inference_semaphore.release()
         os.remove(tmp_path)
 
     # Persist the prediction along with the report

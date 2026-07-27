@@ -48,6 +48,21 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "groq")
 LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-oss-20b")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+# ── Concurrency & reliability settings ───────────────
+# How many inference pipelines (predict + Grad-CAM [+ report]) may run at
+# once. Kept at 1 by default: on a small CPU allocation, running these
+# concurrently doesn't parallelize usefully, it just makes every request
+# slower via CPU contention (and Grad-CAM's hooks aren't safe to run
+# concurrently on a shared model instance). Raise via env var only on an
+# instance with real spare CPU.
+MAX_CONCURRENT_INFERENCE = int(os.getenv("MAX_CONCURRENT_INFERENCE", "1"))
+
+# Max time a request waits for its turn to run before failing fast with a
+# clear "server busy" response, instead of queueing silently until some
+# external proxy (e.g. Railway's edge) kills the connection with no
+# explanation.
+INFERENCE_QUEUE_TIMEOUT_SECONDS = int(os.getenv("INFERENCE_QUEUE_TIMEOUT_SECONDS", "120"))
+
 
 def print_config():
     """Print all config values for debugging."""
