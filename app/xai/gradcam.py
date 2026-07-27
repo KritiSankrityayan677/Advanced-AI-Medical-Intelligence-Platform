@@ -58,61 +58,43 @@ def _tensor_to_original_rgb(image_path: Union[str, Path]) -> np.ndarray:
     return rgb
 
 
-def generate_heatmap(
-    image_path: Union[str, Path],
-    target_class: int = None,
-) -> Tuple[Image.Image, str, float]:
-    """
-    Generate a Grad-CAM heatmap overlay for the given image.
+def generate_heatmap(image_path, target_class=None):
+    import gc
 
-    Args:
-        image_path: Path to the image file.
-        target_class: Class index to explain. If None, uses the model's top prediction.
-
-    Returns:
-        Tuple of:
-            heatmap_image: PIL.Image — original scan with heatmap overlay
-            predicted_class: str — name of the class the heatmap explains
-            confidence: float — probability of that class (0.0-1.0)
-    """
-    # 1. Load the model
     model = get_model()
 
-    # 2. Preprocess the image into a tensor batch
     image = Image.open(image_path)
     input_tensor = _preprocess(image).unsqueeze(0).to(DEVICE)
 
-    # 3. Get the predicted class if none specified
     with torch.no_grad():
         logits = model(input_tensor)
         probabilities = torch.softmax(logits, dim=1).squeeze(0)
-
         if target_class is None:
             target_class = int(probabilities.argmax())
-
         confidence = float(probabilities[target_class])
         predicted_class = CLASS_NAMES[target_class]
 
-    # 4. Set up Grad-CAM on the target layer
+    del logits, probabilities
+    gc.collect()
+
     target_layer = _get_target_layer(model)
-    cam = GradCAM(model=model, target_layers=[target_layer])
-
-    # 5. Compute the heatmap for the target class
     targets = [ClassifierOutputTarget(target_class)]
+
+    # Grad-CAM needs gradients only for this narrow block
+    cam = GradCAM(model=model, target_layers=[target_layer])
     grayscale_cam = cam(input_tensor=input_tensor, targets=targets)
-    grayscale_cam = grayscale_cam[0]  # unwrap the batch dimension
+    grayscale_cam = grayscale_cam[0]
+    del cam, targets
+    gc.collect()
 
-    # 6. Load the original image as RGB for overlay
     rgb_image = _tensor_to_original_rgb(image_path)
-
-    # 7. Blend the heatmap onto the original scan
     overlay = show_cam_on_image(rgb_image, grayscale_cam, use_rgb=True)
-
-    # 8. Convert NumPy array back to a PIL Image for easy display/saving
     heatmap_image = Image.fromarray(overlay)
 
-    return heatmap_image, predicted_class, confidence
+    del input_tensor, grayscale_cam, rgb_image, overlay
+    gc.collect()
 
+    return heatmap_image, predicted_class, confidence
 
 if __name__ == "__main__":
     import sys

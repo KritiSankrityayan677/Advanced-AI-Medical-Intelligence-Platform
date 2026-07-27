@@ -11,6 +11,7 @@ import io
 import os
 import base64
 import tempfile
+import gc
 
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -139,9 +140,13 @@ async def predict_report_endpoint(
     tmp_path = _save_bytes_to_temp(data, file.filename)
     try:
         prediction = predict(tmp_path)
+        gc.collect()
         heatmap_img, _, _ = generate_heatmap(tmp_path)
+        gc.collect()
         report = generate_report(prediction)
+        gc.collect()
         heatmap_b64 = _encode_image_base64(heatmap_img)
+        gc.collect()
     finally:
         os.remove(tmp_path)
 
