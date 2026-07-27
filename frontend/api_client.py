@@ -14,6 +14,7 @@ API_BASE_URL="https://neurovision-ai.up.railway.app"
 
 def check_health() -> dict:
     """Check if the API is reachable and return its health status."""
+    print(f"Checking health of API at {API_BASE_URL}")
     response = requests.get(f"{API_BASE_URL}/health", timeout=5)
     response.raise_for_status()
     return response.json()
@@ -22,6 +23,7 @@ def check_health() -> dict:
 def predict(image_bytes: bytes, filename: str = "scan.jpg") -> dict:
     """Send an image to /predict and return the prediction dict."""
     files = {"file": (filename, image_bytes, "image/jpeg")}
+    print(f"Sending image to API at {API_BASE_URL}/predict")
     response = requests.post(f"{API_BASE_URL}/predict", files=files, timeout=60)
     response.raise_for_status()
     return response.json()
@@ -30,6 +32,7 @@ def predict(image_bytes: bytes, filename: str = "scan.jpg") -> dict:
 def predict_report(image_bytes: bytes, filename: str = "scan.jpg") -> dict:
     """Send an image to /predict/report and return the full response with report + heatmap."""
     files = {"file": (filename, image_bytes, "image/jpeg")}
+    print(f"Sending image to API at {API_BASE_URL}/predict/report")
     response = requests.post(
         f"{API_BASE_URL}/predict/report",
         files=files,
@@ -41,6 +44,7 @@ def predict_report(image_bytes: bytes, filename: str = "scan.jpg") -> dict:
 
 def get_history(limit: int = 50, offset: int = 0) -> dict:
     """Fetch prediction history from the API."""
+    print(f"Fetching prediction history from API at {API_BASE_URL}/history")
     response = requests.get(
         f"{API_BASE_URL}/history",
         params={"limit": limit, "offset": offset},
